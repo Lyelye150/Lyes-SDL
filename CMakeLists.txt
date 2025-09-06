@@ -3269,6 +3269,34 @@ elseif(N3DS)
     "${SDL3_SOURCE_DIR}/src/io/n3ds/*.h"
   )
 
+elseif(WIIU)
+  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/main/wiiu/*.c")
+
+  if(SDL_AUDIO)
+    set(SDL_AUDIO_DRIVER_WIIU 1)
+    sdl_glob_sources("${SDL3_SOURCE_DIR}/src/audio/wiiu/*.c")
+    set(HAVE_SDL_AUDIO TRUE)
+  endif()
+
+  # Wii U filesystem has not been made yet
+  set(SDL_FILESYSTEM_WIIU 1)
+  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/filesystem/wiiu/*.c")
+  set(HAVE_SDL_FILESYSTEM FALSE)
+
+  if(SDL_VIDEO)
+    set(SDL_VIDEO_DRIVER_WIIU 1)
+    sdl_glob_sources("${SDL3_SOURCE_DIR}/src/video/wiiu/*.c")
+    set(HAVE_SDL_VIDEO TRUE)
+  endif()
+
+  set(SDL_THREAD_WIIU 1)
+  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/thread/wiiu/*.c")
+  set(HAVE_SDL_THREADS TRUE)
+
+  set(SDL_TIMER_WIIU 1)
+  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/timer/wiiu/*.c")
+  set(HAVE_SDL_TIMERS TRUE)
+
 elseif(NGAGE)
 
   enable_language(CXX)
