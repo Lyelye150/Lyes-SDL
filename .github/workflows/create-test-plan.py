@@ -706,6 +706,18 @@ def spec_to_job(spec: JobSpec, key: str, trackmem_symbol_names: bool) -> JobDeta
             job.cmake_toolchain_file = "${DEVKITPRO}/cmake/3DS.cmake"
             job.binutils_strings = "/opt/devkitpro/devkitARM/bin/arm-none-eabi-strings"
             job.static_lib = StaticLibType.A
+        case SdlPlatform.WiiU:
+            job.cmake_generator = "Unix Makefiles"
+            job.cmake_build_arguments.append("-j$(nproc)")
+            job.ccache = False
+            job.shared = False
+            job.apt_packages = []
+            job.clang_tidy = False
+            job.run_tests = False
+            job.cc_from_cmake = True
+            job.cmake_toolchain_file = "${DEVKITPRO}/cmake/WiiU.cmake"
+            job.binutils_strings = "/opt/devkitpro/devkitPPC/bin/powerpc-eabi-strings"
+            job.static_lib = StaticLibType.A
         case SdlPlatform.Msys2:
             job.ccache = True
             job.shell = "msys2 {0}"
