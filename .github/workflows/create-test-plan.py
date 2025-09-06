@@ -46,6 +46,7 @@ class SdlPlatform(Enum):
     Tvos = "tvos"
     Msvc = "msvc"
     N3ds = "n3ds"
+    WiiU = "wiiu"
     PowerPC = "powerpc"
     PowerPC64 = "powerpc64"
     Ps2 = "ps2"
