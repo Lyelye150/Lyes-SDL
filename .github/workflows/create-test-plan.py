@@ -717,6 +717,8 @@ def spec_to_job(spec: JobSpec, key: str, trackmem_symbol_names: bool) -> JobDeta
             job.cc_from_cmake = True
             job.cmake_toolchain_file = "${DEVKITPRO}/cmake/WiiU.cmake"
             job.binutils_strings = "/opt/devkitpro/devkitPPC/bin/powerpc-eabi-strings"
+            # threads are disabled for now (this will be deleted soon)
+            job.cmake_options.append("-DSDL_THREADS=OFF")
             job.static_lib = StaticLibType.A
         case SdlPlatform.Msys2:
             job.ccache = True

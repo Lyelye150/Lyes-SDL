@@ -32,7 +32,6 @@
 #include "../SDL_audiodev_c.h"
 #include "../SDL_sysaudio.h"
 #include "SDL_wiiuaudio.h"
-#include "SDL_wiiuaudio_mix.h"
 
 #include <sndcore2/core.h>
 #include <sndcore2/voice.h>
