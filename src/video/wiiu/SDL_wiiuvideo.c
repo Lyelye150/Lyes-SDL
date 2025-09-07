@@ -27,11 +27,10 @@
 
 /* SDL internals */
 #include "../SDL_sysvideo.h"
-#include "SDL_version.h"
-#include "SDL_syswm.h"
-#include "SDL_loadso.h"
-#include "SDL_events.h"
-#include "SDL_render.h"
+#include "../SDL_version.h"
+#include "../SDL_loadso.h"
+#include "../SDL_events.h"
+#include "../SDL_render.h"
 #include "../../events/SDL_mouse_c.h"
 #include "../../events/SDL_keyboard_c.h"
 #include "../../events/SDL_events_c.h"
