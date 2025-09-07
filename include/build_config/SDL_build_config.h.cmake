@@ -284,6 +284,7 @@
 #cmakedefine SDL_AUDIO_DRIVER_PSP 1
 #cmakedefine SDL_AUDIO_DRIVER_PS2 1
 #cmakedefine SDL_AUDIO_DRIVER_N3DS 1
+#cmakedefine SDL_AUDIO_DRIVER_WIIU 1
 #cmakedefine SDL_AUDIO_DRIVER_NGAGE 1
 #cmakedefine SDL_AUDIO_DRIVER_QNX 1
 
@@ -306,6 +307,7 @@
 #cmakedefine SDL_JOYSTICK_LINUX 1
 #cmakedefine SDL_JOYSTICK_MFI 1
 #cmakedefine SDL_JOYSTICK_N3DS 1
+#cmakedefine SDL_JOYSTICK_WIIU 1
 #cmakedefine SDL_JOYSTICK_PS2 1
 #cmakedefine SDL_JOYSTICK_PSP 1
 #cmakedefine SDL_JOYSTICK_RAWINPUT 1
@@ -363,6 +365,7 @@
 #cmakedefine SDL_THREAD_PSP 1
 #cmakedefine SDL_THREAD_PS2 1
 #cmakedefine SDL_THREAD_N3DS 1
+#cmakedefine SDL_THREAD_WIIU 1
 
 #cmakedefine SDL_THREAD_PRIVATE 1
 
@@ -385,6 +388,7 @@
 #cmakedefine SDL_TIMER_PSP 1
 #cmakedefine SDL_TIMER_PS2 1
 #cmakedefine SDL_TIMER_N3DS 1
+#cmakedefine SDL_TIMER_WIIU 1
 
 #cmakedefine SDL_TIMER_PRIVATE 1
 
@@ -398,6 +402,7 @@
 #cmakedefine SDL_VIDEO_DRIVER_KMSDRM_DYNAMIC @SDL_VIDEO_DRIVER_KMSDRM_DYNAMIC@
 #cmakedefine SDL_VIDEO_DRIVER_KMSDRM_DYNAMIC_GBM @SDL_VIDEO_DRIVER_KMSDRM_DYNAMIC_GBM@
 #cmakedefine SDL_VIDEO_DRIVER_N3DS 1
+#cmakedefine SDL_VIDEO_DRIVER_WIIU 1
 #cmakedefine SDL_VIDEO_DRIVER_NGAGE 1
 #cmakedefine SDL_VIDEO_DRIVER_OFFSCREEN 1
 #cmakedefine SDL_VIDEO_DRIVER_PS2 1
