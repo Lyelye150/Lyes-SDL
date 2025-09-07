@@ -26,11 +26,11 @@
 #if SDL_VIDEO_DRIVER_WIIU
 
 /* SDL internals */
-#include "../SDL_sysvideo.h"
-#include "../SDL_version.h"
-#include "../SDL_loadso.h"
-#include "../SDL_events.h"
-#include "../SDL_render.h"
+#include "SDL3/SDL_sysvideo.h"
+#include "SDL3/SDL_version.h"
+#include "SDL3/SDL_loadso.h"
+#include "SDL3/SDL_events.h"
+#include "SDL3/SDL_render.h"
 #include "../../events/SDL_mouse_c.h"
 #include "../../events/SDL_keyboard_c.h"
 #include "../../events/SDL_events_c.h"

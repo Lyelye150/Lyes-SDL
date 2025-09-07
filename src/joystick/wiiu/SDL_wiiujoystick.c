@@ -34,9 +34,9 @@
 #include "../SDL_joystick_c.h"
 #include "../../events/SDL_touch_c.h"
 
-#include "SDL_log.h"
-#include "SDL_assert.h"
-#include "SDL_events.h"
+#include "SDL3/SDL_log.h"
+#include "SDL3/SDL_assert.h"
+#include "SDL3/SDL_events.h"
 
 #include "SDL_wiiujoystick.h"
 #include "../../video/SDL_sysvideo.h"

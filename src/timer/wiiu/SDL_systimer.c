@@ -22,9 +22,9 @@
 
 #ifdef SDL_TIMER_WIIU
 
-#include "SDL_thread.h"
-#include "SDL_timer.h"
-#include "SDL_error.h"
+#include "SDL3/SDL_thread.h"
+#include "SDL3/SDL_timer.h"
+#include "SDL3/SDL_error.h"
 #include "../SDL_timer_c.h"
 #include <coreinit/thread.h>
 #include <coreinit/systeminfo.h>
