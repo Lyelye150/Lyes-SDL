@@ -141,7 +141,7 @@ static int WIIUAUDIO_OpenDevice(_THIS, const char* devname) {
 
 /*  Free the failed attempts */
     while (mixbuf_allocation_count--) {
-        free(mixbuf_allocations[mixbuf_allocation_count]);
+        SDL_free(mixbuf_allocations[mixbuf_allocation_count]);
     }
 
     if (!mixbuf) {
@@ -150,7 +150,7 @@ static int WIIUAUDIO_OpenDevice(_THIS, const char* devname) {
         goto end;
     }
 
-    memset(mixbuf, 0, this->spec.size * NUM_BUFFERS);
+    SDL_memset(mixbuf, 0, this->spec.size * NUM_BUFFERS);
     DCStoreRange(mixbuf, this->spec.size * NUM_BUFFERS);
 
     for (int i = 0; i < NUM_BUFFERS; i++) {
@@ -357,7 +357,7 @@ static void WIIUAUDIO_PlayDevice(_THIS) {
     }
 
 /*  Copy the deinterleaved buffer to the mixing buffer */
-    memcpy(
+    SDL_memcpy(
         this->hidden->mixbufs[this->hidden->renderingid],
         this->hidden->deintvbuf,
         this->spec.size

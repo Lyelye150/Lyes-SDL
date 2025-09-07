@@ -37,8 +37,8 @@
 static void
 thread_deallocator(OSThread *thread, void *stack)
 {
-   free(thread);
-   free(stack);
+   SDL_free(thread);
+   SDL_free(stack);
 }
 
 static void

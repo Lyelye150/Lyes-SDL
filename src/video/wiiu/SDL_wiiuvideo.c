@@ -257,7 +257,7 @@ static int WIIU_VideoInit(_THIS)
 
 	// if this is running, the application is already in foreground so call the callback
 	if (WIIU_ForegroundAcquired(_this) != 0) {
-		free(videodata->commandBufferPool);
+		SDL_free(videodata->commandBufferPool);
 		videodata->commandBufferPool = NULL;
 		return SDL_OutOfMemory();
 	}
@@ -299,7 +299,7 @@ static void WIIU_VideoQuit(_THIS)
 	GX2Shutdown();
 
 	if (videodata->commandBufferPool) {
-		free(videodata->commandBufferPool);
+		SDL_free(videodata->commandBufferPool);
 		videodata->commandBufferPool = NULL;
 	}
 
