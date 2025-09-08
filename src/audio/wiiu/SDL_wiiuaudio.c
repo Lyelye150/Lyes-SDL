@@ -7,17 +7,14 @@
   arising from the use of this software.
 
   Permission is granted to anyone to use this software for any purpose,
-  including commercial applications, and to alter it and redistribute it
-  freely, subject to the following restrictions:
+  including commercial applications, and to alter it and redistribute
+  it freely, subject to the following restrictions:
 
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
+  1. The origin of this software must not be misrepresented.
+  2. Altered source versions must be plainly marked as such.
   3. This notice may not be removed or altered from any source distribution.
 */
+
 #include "../../SDL_internal.h"
 
 #if SDL_AUDIO_DRIVER_WIIU
@@ -43,29 +40,28 @@
 #include <coreinit/memorymap.h>
 
 #define WIIUAUDIO_DRIVER_NAME "wiiu"
-
 #define AX_MAIN_AFFINITY OS_THREAD_ATTRIB_AFFINITY_CPU1
+#define NUM_BUFFERS 2
+#define WIIU_MAX_VALID_CHANNELS 2
 
-static void _WIIUAUDIO_framecallback();
+static Uint8 mono_mix[2][6] = {0};   // dummy mixes, adjust if needed
+static Uint8 stereo_mix[2][6] = {0};
+
+static void _WIIUAUDIO_framecallback(void);
 static SDL_AudioDevice* cb_this;
 #define cb_hidden cb_this->hidden
 
-/*  Some helpers for AX-related math */
-/*  Absolute address to an AXVoiceOffsets offset */
-#define calc_ax_offset(offs, addr) (((void*)addr - offs.data) \
-    / sizeof_sample(offs))
-
+/* helpers for AX-related math */
+#define calc_ax_offset(offs, addr) (((void*)addr - offs.data) / sizeof_sample(offs))
 #define sizeof_sample(offs) (offs.dataType == AX_VOICE_FORMAT_LPCM8 ? 1 : 2)
+#define next_id(id) ((id + 1) % NUM_BUFFERS)
 
-/*  +1, but never goes above NUM_BUFFERS */
-#define next_id(id) (id + 1) % NUM_BUFFERS
-
-static int WIIUAUDIO_OpenDevice(_THIS, const char* devname) {
+/* Open the device */
+static int WIIUAUDIO_OpenDevice(SDL_AudioDevice *this, const char* devname)
+{
     int ret = 0;
     AXVoiceOffsets offs;
-    AXVoiceVeData vol = {
-        .volume = 0x8000,
-    };
+    AXVoiceVeData vol = { .volume = 0x8000 };
     uint32_t old_affinity;
     float srcratio;
     Uint8* mixbuf = NULL;
@@ -73,314 +69,186 @@ static int WIIUAUDIO_OpenDevice(_THIS, const char* devname) {
     Uint8* mixbuf_allocations[32];
 
     this->hidden = (struct SDL_PrivateAudioData*)SDL_malloc(sizeof(*this->hidden));
-    if (this->hidden == NULL) {
-        return SDL_OutOfMemory();
-    }
-
+    if (!this->hidden) return SDL_OutOfMemory();
     SDL_zerop(this->hidden);
 
-/*  We *must not* change cores when setting stuff up */
+    /* Keep thread affinity */
     old_affinity = OSGetThreadAffinity(OSGetCurrentThread());
     OSSetThreadAffinity(OSGetCurrentThread(), AX_MAIN_AFFINITY);
 
-/*  Take a quick aside to init the wiiu audio */
     if (!AXIsInit()) {
-    /*  Init the AX audio engine */
         AXInitParams initparams = {
             .renderer = AX_INIT_RENDERER_48KHZ,
             .pipeline = AX_INIT_PIPELINE_SINGLE,
         };
         AXInitWithParams(&initparams);
-    } else printf("DEBUG: AX already up?\n");
+    }
 
     if (this->spec.channels < 1) this->spec.channels = 1;
     if (this->spec.channels > WIIU_MAX_VALID_CHANNELS)
         this->spec.channels = WIIU_MAX_VALID_CHANNELS;
 
-/*  Force wiiu-compatible audio formats.
-    TODO verify - unsigned or signed? */
     switch (SDL_AUDIO_BITSIZE(this->spec.format)) {
-        case 8:
-        /*  TODO 8-bit audio sounds broken */
-            /*this->spec.format = AUDIO_S8;
-            break;*/
+        case 8: break;
         case 16:
         default:
             this->spec.format = AUDIO_S16MSB;
             break;
     }
 
-    //TODO maybe round this->spec.samples up even when >?
-    //maybe even force at least 2* so we get more frame callbacks to think
-    if (this->spec.samples < AXGetInputSamplesPerFrame()) {
-        this->spec.samples = AXGetInputSamplesPerFrame();
-    }
+    if (SDL_AudioSpecGetSamples(&this->spec) < AXGetInputSamplesPerFrame())
+        SDL_AudioSpecSetSamples(&this->spec, AXGetInputSamplesPerFrame());
 
-/*  We changed channels and samples, so recalculate the spec */
     SDL_CalculateAudioSpec(&this->spec);
 
-/*  Allocate buffers for double-buffering and samples.
-    Make sure the entire mixbuf is in a 512MiB block for the DSP to be accessible. */
+    /* Allocate buffers */
     for (int i = 0; i < 32; i++) {
         Uint32 physStart, physEnd;
-        mixbuf = memalign(0x40, this->spec.size * NUM_BUFFERS);
-        if (!mixbuf) {
-            break;
-        }
-
+        mixbuf = memalign(0x40, SDL_AudioSpecGetBufferSize(&this->spec) * NUM_BUFFERS);
+        if (!mixbuf) break;
         physStart = OSEffectiveToPhysical((uint32_t) mixbuf) & 0x1fffffff;
-        physEnd = physStart + this->spec.size * NUM_BUFFERS;
-        if ((physEnd & 0xe0000000) == 0) {
-            break;
-        }
-
-        mixbuf_allocations[mixbuf_allocation_count] = mixbuf;
-        mixbuf_allocation_count++;
+        physEnd = physStart + SDL_AudioSpecGetBufferSize(&this->spec) * NUM_BUFFERS;
+        if ((physEnd & 0xe0000000) == 0) break;
+        mixbuf_allocations[mixbuf_allocation_count++] = mixbuf;
         mixbuf = NULL;
     }
 
-/*  Free the failed attempts */
-    while (mixbuf_allocation_count--) {
-        SDL_free(mixbuf_allocations[mixbuf_allocation_count]);
-    }
+    while (mixbuf_allocation_count--) SDL_free(mixbuf_allocations[mixbuf_allocation_count]);
 
-    if (!mixbuf) {
-        printf("Couldn't allocate mix buffer\n");
-        ret = SDL_OutOfMemory();
-        goto end;
-    }
+    if (!mixbuf) { ret = SDL_OutOfMemory(); goto end; }
 
-    SDL_memset(mixbuf, 0, this->spec.size * NUM_BUFFERS);
-    DCStoreRange(mixbuf, this->spec.size * NUM_BUFFERS);
+    SDL_memset(mixbuf, 0, SDL_AudioSpecGetBufferSize(&this->spec) * NUM_BUFFERS);
+    DCStoreRange(mixbuf, SDL_AudioSpecGetBufferSize(&this->spec) * NUM_BUFFERS);
 
-    for (int i = 0; i < NUM_BUFFERS; i++) {
-        this->hidden->mixbufs[i] = mixbuf + this->spec.size * i;
-    }
+    for (int i = 0; i < NUM_BUFFERS; i++)
+        this->hidden->mixbufs[i] = mixbuf + SDL_AudioSpecGetBufferSize(&this->spec) * i;
 
-/*  Allocate a scratch buffer for deinterleaving operations */
-    this->hidden->deintvbuf = SDL_malloc(this->spec.size);
-    if (this->hidden->deintvbuf == NULL) {
-        AXQuit();
-        printf("DEBUG: Couldn't allocate deinterleave buffer");
-        ret = SDL_SetError("Couldn't allocate deinterleave buffer");
-        goto end;
-    }
-
+    this->hidden->deintvbuf = SDL_malloc(SDL_AudioSpecGetBufferSize(&this->spec));
+    if (!this->hidden->deintvbuf) { AXQuit(); ret = SDL_OutOfMemory(); goto end; }
 
     for (int i = 0; i < this->spec.channels; i++) {
-    /*  Get a voice, top priority */
         this->hidden->voice[i] = AXAcquireVoice(31, NULL, NULL);
-        if (!this->hidden->voice[i]) {
-            AXQuit();
-            printf("DEBUG: couldn't get voice\n");
-            ret = SDL_OutOfMemory();
-            goto end;
-        }
+        if (!this->hidden->voice[i]) { AXQuit(); ret = SDL_OutOfMemory(); goto end; }
 
-    /*  Start messing with it */
         AXVoiceBegin(this->hidden->voice[i]);
         AXSetVoiceType(this->hidden->voice[i], 0);
-
-    /*  Set the voice's volume. */
         AXSetVoiceVe(this->hidden->voice[i], &vol);
+
         switch (this->spec.channels) {
-            case 1: /* mono */ {
-                AXSetVoiceDeviceMix(this->hidden->voice[i],
-                    AX_DEVICE_TYPE_DRC, 0, mono_mix[i]);
-                AXSetVoiceDeviceMix(this->hidden->voice[i],
-                    AX_DEVICE_TYPE_TV, 0, mono_mix[i]);
-            } break;
-            case 2: /* stereo */ {
-                AXSetVoiceDeviceMix(this->hidden->voice[i],
-                    AX_DEVICE_TYPE_DRC, 0, stereo_mix[i]);
-                AXSetVoiceDeviceMix(this->hidden->voice[i],
-                    AX_DEVICE_TYPE_TV, 0, stereo_mix[i]);
-            } break;
+            case 1:
+                AXSetVoiceDeviceMix(this->hidden->voice[i], AX_DEVICE_TYPE_DRC, 0, mono_mix[i]);
+                AXSetVoiceDeviceMix(this->hidden->voice[i], AX_DEVICE_TYPE_TV, 0, mono_mix[i]);
+                break;
+            case 2:
+                AXSetVoiceDeviceMix(this->hidden->voice[i], AX_DEVICE_TYPE_DRC, 0, stereo_mix[i]);
+                AXSetVoiceDeviceMix(this->hidden->voice[i], AX_DEVICE_TYPE_TV, 0, stereo_mix[i]);
+                break;
         }
 
-    /*  Set the samplerate conversion ratio
-        <source sample rate> / <target sample rate> */
         srcratio = (float)this->spec.freq / (float)AXGetInputSamplesPerSec();
         AXSetVoiceSrcRatio(this->hidden->voice[i], srcratio);
         AXSetVoiceSrcType(this->hidden->voice[i], AX_VOICE_SRC_TYPE_LINEAR);
 
-    /*  Set up the offsets for the first mixbuf */
-        switch (SDL_AUDIO_BITSIZE(this->spec.format)) {
-            case 8:
-                offs.dataType = AX_VOICE_FORMAT_LPCM8;
-                offs.endOffset = this->spec.samples;
-                break;
-            case 16:
-            default:
-                offs.dataType = AX_VOICE_FORMAT_LPCM16;
-                offs.endOffset = this->spec.samples;
-                break;
-        }
         offs.loopingEnabled = AX_VOICE_LOOP_ENABLED;
-        offs.loopOffset = 0;
         offs.currentOffset = 0;
+        offs.loopOffset = 0;
+        offs.endOffset = SDL_AudioSpecGetSamples(&this->spec);
+        offs.dataType = (SDL_AUDIO_BITSIZE(this->spec.format) == 8) ? AX_VOICE_FORMAT_LPCM8 : AX_VOICE_FORMAT_LPCM16;
+        offs.data = this->hidden->mixbufs[0] + SDL_AudioSpecGetSamples(&this->spec) * i * ((offs.dataType == AX_VOICE_FORMAT_LPCM8) ? 1 : 2);
 
-        if (offs.dataType == AX_VOICE_FORMAT_LPCM8) {
-            offs.data = this->hidden->mixbufs[0]
-                + this->spec.samples * i * sizeof(Uint8);
-        } else if (offs.dataType == AX_VOICE_FORMAT_LPCM16) {
-            offs.data = this->hidden->mixbufs[0]
-                + this->spec.samples * i * sizeof(Uint16);
-        }
         AXSetVoiceOffsets(this->hidden->voice[i], &offs);
-
-    /*  Set the last good loopcount */
         this->hidden->last_loopcount = AXGetVoiceLoopCount(this->hidden->voice[i]);
-
-    /*  Offsets are set for playing the first mixbuf, so we should render the second */
         this->hidden->playingid = 0;
         this->hidden->renderingid = 1;
-
-    /*  Start playing. */
         AXSetVoiceState(this->hidden->voice[i], AX_VOICE_STATE_PLAYING);
-
-    /*  Okay, we're good */
         AXVoiceEnd(this->hidden->voice[i]);
     }
 
-    cb_this = this; //wish there was a better way
+    cb_this = this;
     AXRegisterAppFrameCallback(_WIIUAUDIO_framecallback);
 
-end: ;
-/*  Put the thread affinity back to normal - we won't call any more AX funcs */
+end:
     OSSetThreadAffinity(OSGetCurrentThread(), old_affinity);
     return ret;
 }
 
-/*  Called every 3ms before a frame of audio is rendered. Keep it fast! */
-static void _WIIUAUDIO_framecallback() {
+/* Frame callback */
+static void _WIIUAUDIO_framecallback(void)
+{
     int playing_buffer = -1;
     AXVoiceOffsets offs[6];
-    void* endaddr;
+    void *endaddr;
 
-    for (int i = 0; i < cb_this->spec.channels; i++) {
+    for (int i = 0; i < cb_this->spec.channels; i++)
         AXGetVoiceOffsets(cb_hidden->voice[i], &offs[i]);
-    }
 
-/*  Figure out which buffer is being played by the hardware */
     for (int i = 0; i < NUM_BUFFERS; i++) {
         void* buf = cb_hidden->mixbufs[i];
         uint32_t startOffset = calc_ax_offset(offs[0], buf);
-        uint32_t endOffset = startOffset + cb_this->spec.samples;
-
-    /*  NOTE endOffset definitely needs to be <= (AX plays the sample at
-        endOffset), dunno about startOffset */
-        if (offs[0].currentOffset >= startOffset &&
-            offs[0].currentOffset <= endOffset) {
-            playing_buffer = i;
-            break;
+        uint32_t endOffset = startOffset + SDL_AudioSpecGetSamples(&cb_this->spec);
+        if (offs[0].currentOffset >= startOffset && offs[0].currentOffset <= endOffset) {
+            playing_buffer = i; break;
         }
     }
 
-    if (playing_buffer < 0 || playing_buffer >= NUM_BUFFERS) {
-    /*  UM */
-    /*  Uncomment for craploads of debug info */
-        /*printf("bad buffer %d\n" "|> %08X, %08X-%08X\n" \
-            "0: xxxxxxxx, %08X-%08X (%08X@%08X)\n" \
-            "1: xxxxxxxx, %08X-%08X (%08X@%08X)\n", \
-            playing_buffer, offs.currentOffset, offs.loopOffset, offs.endOffset,
-            calc_ax_offset(offs, (void*)cb_hidden->mixbufs[0]),
-                calc_ax_offset(offs, (void*)cb_hidden->mixbufs[0] + cb_this->spec.size),
-                cb_this->spec.size, (void*)cb_hidden->mixbufs[0],
-            calc_ax_offset(offs, (void*)cb_hidden->mixbufs[1]),
-                calc_ax_offset(offs, (void*)cb_hidden->mixbufs[1] + cb_this->spec.size),
-                cb_this->spec.size, (void*)cb_hidden->mixbufs[1]);*/
-        printf("DEBUG: Playing an invalid buffer? This is not a good sign.\n");
-        playing_buffer = 0;
-    }
-
-/*  Make sure playingid is in sync with the hardware */
+    if (playing_buffer < 0 || playing_buffer >= NUM_BUFFERS) playing_buffer = 0;
     cb_hidden->playingid = playing_buffer;
 
-/*  Make sure the end offset is correct for the playing buffer */
     for (int i = 0; i < cb_this->spec.channels; i++) {
-    /*  Calculate end address, aka start of the next (i+1) channel's buffer */
-        endaddr = cb_hidden->mixbufs[cb_hidden->playingid] +
-            (cb_this->spec.samples * sizeof_sample(offs[i]) * (i + 1));
-
-    /*  Trial end error to try and limit popping */
+        endaddr = cb_hidden->mixbufs[cb_hidden->playingid] + SDL_AudioSpecGetSamples(&cb_this->spec) * sizeof_sample(offs[i]) * (i + 1);
         endaddr -= 2;
+        AXSetVoiceEndOffset(cb_hidden->voice[i], calc_ax_offset(offs[i], endaddr));
 
-        AXSetVoiceEndOffset(
-            cb_hidden->voice[i],
-            calc_ax_offset(offs[i], endaddr)
-        );
-
-    /*  The next buffer is good to go, set the loop offset */
-        if (cb_hidden->renderingid != next_id(cb_hidden->playingid)) {
-        /*  Calculate start address for this channel's buffer */
-            void* loopaddr = cb_hidden->mixbufs[next_id(cb_hidden->playingid)] +
-                (cb_this->spec.samples * sizeof_sample(offs[i]) * i);
-
-            AXSetVoiceLoopOffset(cb_hidden->voice[i], calc_ax_offset(offs[i], loopaddr));
-    /*  Otherwise, make sure the loop offset is correct for the playing buffer */
-        } else {
-            void* loopaddr = cb_hidden->mixbufs[cb_hidden->playingid] +
-                (cb_this->spec.samples * sizeof_sample(offs[i]) * i);
-
-            AXSetVoiceLoopOffset(cb_hidden->voice[i], calc_ax_offset(offs[i], loopaddr));
-        }
+        void* loopaddr = (cb_hidden->renderingid != next_id(cb_hidden->playingid)) ?
+            cb_hidden->mixbufs[next_id(cb_hidden->playingid)] + SDL_AudioSpecGetSamples(&cb_this->spec) * sizeof_sample(offs[i]) * i :
+            cb_hidden->mixbufs[cb_hidden->playingid] + SDL_AudioSpecGetSamples(&cb_this->spec) * sizeof_sample(offs[i]) * i;
+        AXSetVoiceLoopOffset(cb_hidden->voice[i], calc_ax_offset(offs[i], loopaddr));
     }
 }
 
-static void WIIUAUDIO_PlayDevice(_THIS) {
-/*  Deinterleave stereo audio */
+/* Play audio */
+static void WIIUAUDIO_PlayDevice(SDL_AudioDevice *this)
+{
     switch (SDL_AUDIO_BITSIZE(this->spec.format)) {
         case 8: {
-            Uint8* samples = (Uint8*)this->hidden->mixbufs[this->hidden->renderingid];
-            Uint8* deintv = (Uint8*)this->hidden->deintvbuf;
-
-            /* Store the samples in a separate deinterleaved buffer */
-            for (int ch = 0; ch < this->spec.channels; ch++) {
-                for (int i = 0; i < this->spec.samples; i++) {
-                    deintv[this->spec.samples * ch + i] = samples[i * this->spec.channels + ch];
-                }
-            }
+            Uint8 *samples = (Uint8*)this->hidden->mixbufs[this->hidden->renderingid];
+            Uint8 *deintv = (Uint8*)this->hidden->deintvbuf;
+            for (int ch = 0; ch < this->spec.channels; ch++)
+                for (int i = 0; i < SDL_AudioSpecGetSamples(&this->spec); i++)
+                    deintv[SDL_AudioSpecGetSamples(&this->spec) * ch + i] = samples[i * this->spec.channels + ch];
         } break;
         case 16: {
-            Uint16* samples = (Uint16*)this->hidden->mixbufs[this->hidden->renderingid];
-            Uint16* deintv = (Uint16*)this->hidden->deintvbuf;
-
-            /* Store the samples in a separate deinterleaved buffer */
-            for (int ch = 0; ch < this->spec.channels; ch++) {
-                for (int i = 0; i < this->spec.samples; i++) {
-                    deintv[this->spec.samples * ch + i] = samples[i * this->spec.channels + ch];
-                }
-            }
+            Uint16 *samples = (Uint16*)this->hidden->mixbufs[this->hidden->renderingid];
+            Uint16 *deintv = (Uint16*)this->hidden->deintvbuf;
+            for (int ch = 0; ch < this->spec.channels; ch++)
+                for (int i = 0; i < SDL_AudioSpecGetSamples(&this->spec); i++)
+                    deintv[SDL_AudioSpecGetSamples(&this->spec) * ch + i] = samples[i * this->spec.channels + ch];
         } break;
-        default: {} break;
+        default: break;
     }
 
-/*  Copy the deinterleaved buffer to the mixing buffer */
-    SDL_memcpy(
-        this->hidden->mixbufs[this->hidden->renderingid],
-        this->hidden->deintvbuf,
-        this->spec.size
-    );
-/*  Comment this out for broken-record mode ;3 */
-    DCStoreRange(this->hidden->mixbufs[this->hidden->renderingid], this->spec.size);
-/*  Signal we're no longer rendering this buffer, AX callback will notice later */
+    SDL_memcpy(this->hidden->mixbufs[this->hidden->renderingid], this->hidden->deintvbuf, SDL_AudioSpecGetBufferSize(&this->spec));
+    DCStoreRange(this->hidden->mixbufs[this->hidden->renderingid], SDL_AudioSpecGetBufferSize(&this->spec));
     this->hidden->renderingid = next_id(this->hidden->renderingid);
 }
 
-static void WIIUAUDIO_WaitDevice(_THIS) {
-/*  TODO use real thread sync stuff */
-    while (SDL_AtomicGet(&this->enabled) && this->hidden->renderingid == this->hidden->playingid) {
+/* Wait for device */
+static void WIIUAUDIO_WaitDevice(SDL_AudioDevice *this)
+{
+    while (SDL_AtomicGet(&this->running) && this->hidden->renderingid == this->hidden->playingid)
         OSSleepTicks(OSMillisecondsToTicks(3));
-    }
 }
 
-static Uint8* WIIUAUDIO_GetDeviceBuf(_THIS) {
-/*  SDL will write audio samples into this buffer */
+/* Get device buffer */
+static Uint8* WIIUAUDIO_GetDeviceBuf(SDL_AudioDevice *this, int *size)
+{
+    if (size) *size = SDL_AudioSpecGetBufferSize(&this->spec);
     return this->hidden->mixbufs[this->hidden->renderingid];
 }
 
-static void WIIUAUDIO_CloseDevice(_THIS) {
+/* Close device */
+static void WIIUAUDIO_CloseDevice(SDL_AudioDevice *this)
+{
     if (AXIsInit()) {
         AXDeregisterAppFrameCallback(_WIIUAUDIO_framecallback);
         for (int i = 0; i < SIZEOF_ARR(this->hidden->voice); i++) {
@@ -396,29 +264,30 @@ static void WIIUAUDIO_CloseDevice(_THIS) {
     SDL_free(this->hidden);
 }
 
-static void WIIUAUDIO_ThreadInit(_THIS) {
-/*  Bump our thread's priority a bit */
-    OSThread* currentThread = OSGetCurrentThread();
-    int32_t priority = OSGetThreadPriority(currentThread);
-    priority -= 1;
+/* Thread init */
+static void WIIUAUDIO_ThreadInit(SDL_AudioDevice *this)
+{
+    OSThread *currentThread = OSGetCurrentThread();
+    int32_t priority = OSGetThreadPriority(currentThread) - 1;
     OSSetThreadPriority(currentThread, priority);
 }
 
-static SDL_bool WIIUAUDIO_Init(SDL_AudioDriverImpl* impl) {
+/* Driver init */
+static SDL_bool WIIUAUDIO_Init(SDL_AudioDriverImpl *impl)
+{
     impl->OpenDevice = WIIUAUDIO_OpenDevice;
     impl->PlayDevice = WIIUAUDIO_PlayDevice;
     impl->WaitDevice = WIIUAUDIO_WaitDevice;
     impl->GetDeviceBuf = WIIUAUDIO_GetDeviceBuf;
     impl->CloseDevice = WIIUAUDIO_CloseDevice;
     impl->ThreadInit = WIIUAUDIO_ThreadInit;
-
     impl->OnlyHasDefaultOutputDevice = SDL_TRUE;
-
     return SDL_TRUE;
 }
 
+/* Bootstrap */
 AudioBootStrap WIIUAUDIO_bootstrap = {
     WIIUAUDIO_DRIVER_NAME, "Wii U AX Audio Driver", WIIUAUDIO_Init, 0,
 };
 
-#endif //SDL_AUDIO_DRIVER_WIIU
+#endif // SDL_AUDIO_DRIVER_WIIU

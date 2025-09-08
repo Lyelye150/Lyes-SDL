@@ -20,8 +20,12 @@
 */
 #include "../../SDL_internal.h"
 
+#if SDL_THREAD_WIIU
+
 #include <coreinit/thread.h>
 
 typedef OSThread *SYS_ThreadHandle;
+
+#endif /* SDL_THREAD_WIIU */
 
 /* vi: set ts=4 sw=4 expandtab: */

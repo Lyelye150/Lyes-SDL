@@ -18,5 +18,21 @@
      misrepresented as being the original software.
   3. This notice may not be removed or altered from any source distribution.
 */
+#ifndef SDL_systhread_c_h_
+#define SDL_systhread_c_h_
+
 #include "../../SDL_internal.h"
+
+#if SDL_THREAD_WIIU
+
+#include <coreinit/thread.h>
+
+typedef struct {
+    OSThread *handle;
+} SDL_SysThread;
+
+#endif /* SDL_THREAD_WIIU */
+
+#endif /* SDL_systhread_c_h_ */
+
 /* vi: set ts=4 sw=4 expandtab: */

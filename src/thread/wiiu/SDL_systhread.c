@@ -22,35 +22,48 @@
 
 #if SDL_THREAD_WIIU
 
-/* WiiU thread management routines for SDL */
+#include "SDL_error.h"
+#include "SDL_thread.h"
+#include "SDL_systhread_c.h"
+#include "SDL_thread_c.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-
-#include "SDL3/SDL_error.h"
-#include "SDL3/SDL_thread.h"
-#include "../SDL_systhread.h"
-#include "../SDL_thread_c.h"
 #include <malloc.h>
 #include <coreinit/thread.h>
 
 static void
 thread_deallocator(OSThread *thread, void *stack)
 {
-   SDL_free(thread);
-   SDL_free(stack);
+    SDL_free(thread);
+    SDL_free(stack);
 }
 
 static void
 thread_cleanup(OSThread *thread, void *stack)
 {
+    /* Optional cleanup hook */
 }
 
 int SDL_SYS_CreateThread(SDL_Thread *thread)
 {
+    if (!thread) {
+        return SDL_InvalidParamError("thread");
+    }
+
     OSThread *handle = (OSThread *)memalign(16, sizeof(OSThread));
+    if (!handle) {
+        SDL_OutOfMemory();
+        return -1;
+    }
+
     unsigned int stackSize = thread->stacksize ? thread->stacksize : 0x8000;
-    void *stackTop = memalign(16, stackSize) + stackSize;
+    void *stackTop = memalign(16, stackSize);
+    if (!stackTop) {
+        SDL_free(handle);
+        SDL_OutOfMemory();
+        return -1;
+    }
+    stackTop = (void *)((uintptr_t)stackTop + stackSize);
+
     int priority = OSGetThreadPriority(OSGetCurrentThread());
 
     if (!OSCreateThread(handle,
@@ -62,60 +75,67 @@ int SDL_SYS_CreateThread(SDL_Thread *thread)
                         priority,
                         OS_THREAD_ATTRIB_AFFINITY_ANY))
     {
+        SDL_free(handle);
+        SDL_free(stackTop);
         return SDL_SetError("OSCreateThread() failed");
     }
 
     OSSetThreadDeallocator(handle, &thread_deallocator);
     OSSetThreadCleanupCallback(handle, &thread_cleanup);
     OSResumeThread(handle);
+
     thread->handle = handle;
     return 0;
 }
 
 void SDL_SYS_SetupThread(const char *name)
 {
-    OSSetThreadName(OSGetCurrentThread(), name);
+    if (name) {
+        OSSetThreadName(OSGetCurrentThread(), name);
+    }
 }
 
 SDL_threadID SDL_ThreadID(void)
 {
-    return (SDL_threadID) OSGetCurrentThread();
+    return (SDL_threadID)OSGetCurrentThread();
 }
 
 void SDL_SYS_WaitThread(SDL_Thread *thread)
 {
-    OSJoinThread(thread->handle, NULL);
+    if (thread && thread->handle) {
+        OSJoinThread(thread->handle, NULL);
+    }
 }
 
 void SDL_SYS_DetachThread(SDL_Thread *thread)
 {
-    OSDetachThread(thread->handle);
+    if (thread && thread->handle) {
+        OSDetachThread(thread->handle);
+    }
 }
 
 void SDL_SYS_KillThread(SDL_Thread *thread)
 {
-    OSCancelThread(thread->handle);
+    if (thread && thread->handle) {
+        OSCancelThread(thread->handle);
+    }
 }
 
 int SDL_SYS_SetThreadPriority(SDL_ThreadPriority priority)
 {
     int value;
 
-    if (priority == SDL_THREAD_PRIORITY_LOW) {
-        value = 17;
-    } else if (priority == SDL_THREAD_PRIORITY_HIGH) {
-        value = 15;
-    } else if (priority == SDL_THREAD_PRIORITY_TIME_CRITICAL) {
-        value = 14;
-    } else {
-        value = 16;
+    switch (priority) {
+        case SDL_THREAD_PRIORITY_LOW:          value = 17; break;
+        case SDL_THREAD_PRIORITY_HIGH:         value = 15; break;
+        case SDL_THREAD_PRIORITY_TIME_CRITICAL:value = 14; break;
+        case SDL_THREAD_PRIORITY_NORMAL:
+        default:                               value = 16; break;
     }
 
     return OSSetThreadPriority(OSGetCurrentThread(), value);
-
 }
 
 #endif /* SDL_THREAD_WIIU */
 
-/* vim: ts=4 sw=4
- */
+/* vim: ts=4 sw=4 expandtab */

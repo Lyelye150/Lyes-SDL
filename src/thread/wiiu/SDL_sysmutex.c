@@ -22,65 +22,91 @@
 
 #if SDL_THREAD_WIIU
 
-#include <errno.h>
-#include <coreinit/mutex.h>
 #include "SDL_thread.h"
+#include "SDL_systhread_c.h"
 
+#include <coreinit/thread.h>
+#include <coreinit/mutex.h>
+#include <coreinit/systeminfo.h>
+#include <stdlib.h>
 
-SDL_mutex *
-SDL_CreateMutex(void)
+/* Forward declaration */
+static int SDLCALL SDL_RunThread(void *data);
+
+int
+SDL_SYS_CreateThread(SDL_Thread *thread, SDL_Function function, void *data, const char *name, void *stackaddr, size_t stacksize)
 {
-    OSMutex *mutex;
+    OSThread *osthread;
 
-    /* Allocate the structure */
-    mutex = (OSMutex *) SDL_calloc(1, sizeof(OSMutex));
-    if (mutex != NULL) {
-        OSInitMutex(mutex);
-    } else {
-        SDL_OutOfMemory();
+    if (stacksize == 0) {
+        stacksize = 64 * 1024; /* Wii U needs explicit stack size */
     }
-    return (SDL_mutex *)mutex;
+
+    osthread = (OSThread *) SDL_malloc(sizeof(OSThread));
+    if (!osthread) {
+        return SDL_OutOfMemory();
+    }
+
+    void *thread_stack = SDL_malloc(stacksize);
+    if (!thread_stack) {
+        SDL_free(osthread);
+        return SDL_OutOfMemory();
+    }
+
+    if (!OSCreateThread(osthread, SDL_RunThread, thread, thread_stack, stacksize, OS_THREAD_PRIORITY_DEFAULT, 0)) {
+        SDL_free(thread_stack);
+        SDL_free(osthread);
+        return SDL_SetError("OSCreateThread() failed");
+    }
+
+    thread->handle = osthread;
+    return 0;
+}
+
+static int SDLCALL
+SDL_RunThread(void *data)
+{
+    SDL_Thread *thread = (SDL_Thread *)data;
+    thread->retval = thread->func(thread->data);
+    return 0;
 }
 
 void
-SDL_DestroyMutex(SDL_mutex * mutex)
+SDL_SYS_SetupThread(const char *name)
 {
-    if (mutex != NULL) {
-        SDL_free(mutex);
-    }
+    /* Not strictly needed for Wii U */
+    (void)name;
 }
 
-/* Lock the mutex */
-int
-SDL_LockMutex(SDL_mutex * mutex) SDL_NO_THREAD_SAFETY_ANALYSIS /* clang doesn't know about NULL mutexes */
+SDL_ThreadID
+SDL_ThreadID(void)
 {
-    if (mutex == NULL) {
-        return 0;
-    }
+    return (SDL_ThreadID) OSGetCurrentThread();
+}
 
-    OSLockMutex((OSMutex *)mutex);
+int
+SDL_SYS_SetThreadPriority(SDL_ThreadPriority priority)
+{
+    /* Wii U threads have default priority; could be extended */
+    (void)priority;
     return 0;
 }
 
-int
-SDL_TryLockMutex(SDL_mutex * mutex)
+void
+SDL_SYS_WaitThread(SDL_Thread *thread)
 {
-    if (mutex == NULL) {
-        return 0;
+    if (thread && thread->handle) {
+        OSJoinThread((OSThread *)thread->handle, NULL);
+        SDL_free(thread->handle);
+        thread->handle = NULL;
     }
-
-    return OSTryLockMutex((OSMutex *)mutex) ? 0 : SDL_MUTEX_TIMEDOUT;
 }
 
-int
-SDL_UnlockMutex(SDL_mutex * mutex) SDL_NO_THREAD_SAFETY_ANALYSIS /* clang doesn't know about NULL mutexes */
+void
+SDL_SYS_DetachThread(SDL_Thread *thread)
 {
-    if (mutex == NULL) {
-        return 0;
-    }
-
-    OSUnlockMutex((OSMutex *)mutex);
-    return 0;
+    /* Nothing special needed on Wii U */
+    (void)thread;
 }
 
 #endif /* SDL_THREAD_WIIU */

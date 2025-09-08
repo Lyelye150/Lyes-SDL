@@ -10,12 +10,8 @@
   including commercial applications, and to alter it and redistribute it
   freely, subject to the following restrictions:
 
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
+  1. The origin of this software must not be misrepresented.
+  2. Altered source versions must be plainly marked as such.
   3. This notice may not be removed or altered from any source distribution.
 */
 
@@ -23,29 +19,25 @@
 #define SDL_wiiuaudio_h_
 
 #include "../SDL_sysaudio.h"
-
 #include <sndcore2/voice.h>
 
-/* Hidden "this" pointer for the audio functions */
-#define _THIS   SDL_AudioDevice *this
-
 #define NUM_BUFFERS 2
-
 #define SIZEOF_ARR(arr) (sizeof(arr) / sizeof(arr[0]))
 
-struct SDL_PrivateAudioData {
+/* Hidden private data for the Wii U audio device */
+typedef struct SDL_PrivateAudioData {
     /* 6 possible voices for 6 channels */
     AXVoice* voice[6];
-    /* The raw allocated mixing buffer. */
-    Uint8   *rawbuf;
-    /* Individual mixing buffers. */
-    Uint8   *mixbufs[NUM_BUFFERS];
-    /* Deinterleaving buffer. */
-    Uint8   *deintvbuf;
+    /* Raw allocated mixing buffer */
+    Uint8* rawbuf;
+    /* Individual mixing buffers */
+    Uint8* mixbufs[NUM_BUFFERS];
+    /* Deinterleaving buffer */
+    Uint8* deintvbuf;
 
     int renderingid;
     int playingid;
     uint32_t last_loopcount;
-};
+} SDL_PrivateAudioData;
 
 #endif /* SDL_wiiuaudio_h_ */

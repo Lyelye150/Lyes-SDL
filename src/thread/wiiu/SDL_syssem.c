@@ -36,36 +36,35 @@
 
 typedef struct
 {
-   OSCondition *cond;
-   bool timed_out;
+    OSCondition *cond;
+    bool timed_out;
 } WIIU_SemWaitTimeoutData;
 
 struct SDL_semaphore
 {
-	OSMutex mtx;
-	OSSemaphore sem;
-	OSCondition cond;
+    OSMutex mtx;
+    OSSemaphore sem;
+    OSCondition cond;
 };
 
 SDL_sem *
 SDL_CreateSemaphore(Uint32 initial_value)
 {
-    SDL_sem *sem;
-
-    sem = (SDL_sem *) SDL_malloc(sizeof(*sem));
-    if (sem) {
-        OSInitSemaphore(&sem->sem, initial_value);
-		OSInitMutex(&sem->mtx);
-		OSInitCond(&sem->cond);
-    } else {
+    SDL_sem *sem = (SDL_sem *)SDL_malloc(sizeof(*sem));
+    if (!sem) {
         SDL_OutOfMemory();
+        return NULL;
     }
+
+    OSInitSemaphore(&sem->sem, initial_value);
+    OSInitMutex(&sem->mtx);
+    OSInitCond(&sem->cond);
 
     return sem;
 }
 
 void
-SDL_DestroySemaphore(SDL_sem * sem)
+SDL_DestroySemaphore(SDL_sem *sem)
 {
     if (sem) {
         SDL_free(sem);
@@ -73,70 +72,87 @@ SDL_DestroySemaphore(SDL_sem * sem)
 }
 
 int
-SDL_SemTryWait(SDL_sem * sem)
+SDL_SemTryWait(SDL_sem *sem)
 {
+    if (!sem) {
+        return SDL_InvalidParamError("sem");
+    }
     return (OSTryWaitSemaphore(&sem->sem) > 0) ? 0 : SDL_MUTEX_TIMEDOUT;
 }
 
 static void
 SDL_SemWaitTimeoutCallback(OSAlarm *alarm, OSContext *context)
 {
-   WIIU_SemWaitTimeoutData *data = (WIIU_SemWaitTimeoutData *)OSGetAlarmUserData(alarm);
-   data->timed_out = true;
-   OSSignalCond(data->cond);
+    WIIU_SemWaitTimeoutData *data = (WIIU_SemWaitTimeoutData *)OSGetAlarmUserData(alarm);
+    data->timed_out = true;
+    OSSignalCond(data->cond);
 }
 
 int
-SDL_SemWaitTimeout(SDL_sem * sem, Uint32 ms)
+SDL_SemWaitTimeout(SDL_sem *sem, Uint32 ms)
 {
-	WIIU_SemWaitTimeoutData data;
-    OSAlarm alarm;
-
-	// timeout is zero
-	if (!ms)
-		SDL_SemTryWait(sem);
-
-	OSLockMutex(&sem->mtx);
-
-	// setup callback data
-	data.timed_out = false;
-	data.cond = &sem->cond;
-
-	// set an alarm
-	OSCreateAlarm(&alarm);
-	OSSetAlarmUserData(&alarm, &data);
-	OSSetAlarm(&alarm, OSMillisecondsToTicks(ms), &SDL_SemWaitTimeoutCallback);
-
-	// try to acquire the semaphore
-    while((OSTryWaitSemaphore(&sem->sem) <= 0) && (data.timed_out == false)) {
-		OSWaitCond(&sem->cond, &sem->mtx);
+    if (!sem) {
+        return SDL_InvalidParamError("sem");
     }
 
-	OSCancelAlarm(&alarm);
+    /* zero timeout = try once */
+    if (ms == 0) {
+        return SDL_SemTryWait(sem);
+    }
 
-	OSUnlockMutex(&sem->mtx);
+    WIIU_SemWaitTimeoutData data;
+    OSAlarm alarm;
 
-    return (data.timed_out == false) ? 0 : SDL_MUTEX_TIMEDOUT;
+    OSLockMutex(&sem->mtx);
+
+    /* setup callback data */
+    data.timed_out = false;
+    data.cond = &sem->cond;
+
+    /* set an alarm */
+    OSCreateAlarm(&alarm);
+    OSSetAlarmUserData(&alarm, &data);
+    OSSetAlarm(&alarm, OSMillisecondsToTicks(ms), &SDL_SemWaitTimeoutCallback);
+
+    /* try until we succeed or timeout */
+    while ((OSTryWaitSemaphore(&sem->sem) <= 0) && !data.timed_out) {
+        OSWaitCond(&sem->cond, &sem->mtx);
+    }
+
+    OSCancelAlarm(&alarm);
+    OSUnlockMutex(&sem->mtx);
+
+    return data.timed_out ? SDL_MUTEX_TIMEDOUT : 0;
 }
 
 int
-SDL_SemWait(SDL_sem * sem)
+SDL_SemWait(SDL_sem *sem)
 {
+    if (!sem) {
+        return SDL_InvalidParamError("sem");
+    }
     OSWaitSemaphore(&sem->sem);
     return 0;
 }
 
 Uint32
-SDL_SemValue(SDL_sem * sem)
+SDL_SemValue(SDL_sem *sem)
 {
+    if (!sem) {
+        SDL_InvalidParamError("sem");
+        return 0;
+    }
     return OSGetSemaphoreCount(&sem->sem);
 }
 
 int
-SDL_SemPost(SDL_sem * sem)
+SDL_SemPost(SDL_sem *sem)
 {
-	OSSignalSemaphore(&sem->sem);
-	OSSignalCond(&sem->cond);
+    if (!sem) {
+        return SDL_InvalidParamError("sem");
+    }
+    OSSignalSemaphore(&sem->sem);
+    OSSignalCond(&sem->cond);
     return 0;
 }
 
